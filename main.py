@@ -1,37 +1,76 @@
-import numpy as np
+import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def gbm(n_years=100, mu=0.142, sigma=0.99, steps_per_year=365, n_paths=1, s0=100):
+def analyze_and_plot_trend(ticker_symbol, period="2y"):
     """
-    Simulates asset prices using Geometric Brownian Motion.
+    Fetches market data, calculates trends using moving averages, 
+    and generates an annotated chart.
     """
-    # Calculate time step
-    dt = 1 / steps_per_year
-    n_steps = int(n_years * steps_per_year)
+    print(f"[*] Fetching market data for {ticker_symbol}...")
     
-    # Generate random standard normal variables for all steps and paths
-    # size is (n_steps, n_paths) to simulate multiple scenarios simultaneously
-    xi = np.random.normal(size=(n_steps, n_paths))
+    # 1. Import Market Data
+    stock = yf.Ticker(ticker_symbol)
+    df = stock.history(period=period)
     
-    # Calculate the log returns using the standard GBM formula
-    drift = (mu - 0.5 * sigma**2) * dt
-    diffusion = sigma * np.sqrt(dt) * xi
-    log_returns = drift + diffusion
+    if df.empty:
+        print("[!] No data found. Check the ticker symbol.")
+        return
+        
+    # 2. Analyze Trends (Calculate Simple Moving Averages)
+    # The 50-day SMA represents the short-term trend
+    df['SMA_50'] = df['Close'].rolling(window=50).mean()
+    # The 200-day SMA represents the long-term macroeconomic trend
+    df['SMA_200'] = df['Close'].rolling(window=200).mean()
     
-    # Calculate cumulative returns and convert to price paths
-    # np.vstack adds the initial price (s0) to the beginning of the array
-    cumulative_returns = np.cumsum(log_returns, axis=0)
-    prices = s0 * np.exp(cumulative_returns)
-    prices = np.vstack([np.full(n_paths, s0), prices])
+    # Determine the current trend state based on the most recent day
+    current_price = df['Close'].iloc[-1]
+    current_sma50 = df['SMA_50'].iloc[-1]
+    current_sma200 = df['SMA_200'].iloc[-1]
     
-    return pd.DataFrame(prices)
+    if current_sma50 > current_sma200:
+        trend_status = "BULLISH (Golden Cross Regime)"
+    elif current_sma50 < current_sma200:
+        trend_status = "BEARISH (Death Cross Regime)"
+    else:
+        trend_status = "NEUTRAL (Consolidation)"
+        
+    # 3. Create Chart with Explanations
+    plt.figure(figsize=(12, 6))
+    
+    # Plotting the price and the two averages
+    plt.plot(df.index, df['Close'], label='Close Price', alpha=0.4, color='gray')
+    plt.plot(df.index, df['SMA_50'], label='50-Day SMA (Short)', color='blue', linewidth=2)
+    plt.plot(df.index, df['SMA_200'], label='200-Day SMA (Long)', color='red', linewidth=2)
+    
+    # Formatting the chart
+    plt.title(f"{ticker_symbol} Market Trend Analysis", fontsize=16, fontweight='bold')
+    plt.xlabel("Date")
+    plt.ylabel("Price (USD)")
+    plt.legend()
+    plt.grid(alpha=0.3)
+    
+    # Adding a dynamic text box that explains the analysis to the user
+    explanation_text = (
+        f"CURRENT ANALYSIS:\n"
+        f"Price: ${current_price:.2f}\n"
+        f"Trend: {trend_status}\n\n"
+        f"Explanation:\n"
+        f"When the short-term 50-SMA (blue) is\n"
+        f"above the long-term 200-SMA (red),\n"
+        f"the asset is in a sustained uptrend.\n"
+        f"If blue crosses below red, it signals\n"
+        f"a macro downtrend."
+    )
+    
+    # Place text box on the upper left of the chart
+    plt.text(0.02, 0.95, explanation_text, transform=plt.gca().transAxes, 
+             fontsize=11, verticalalignment='top', 
+             bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.9, edgecolor='gray'))
 
-# Generate 5 different potential future price paths
-simulated_prices = gbm(n_paths=5)
+    plt.tight_layout()
+    plt.show()
 
-# Optional: Plot the results to verify
-simulated_prices.plot(legend=False, title="GBM Simulated Price Paths")
-plt.xlabel("Time Steps (Days)")
-plt.ylabel("Asset Price")
-plt.show()
+if __name__ == "__main__":
+    # You can change "AAPL" to any ticker, like "SPY" for the S&P 500 or "BTC-USD" for Bitcoin
+    analyze_and_plot_trend("AAPL", period="2y")
