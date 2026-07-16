@@ -1,0 +1,26 @@
+name: Python Quant Bot CI
+
+on: [push] # This triggers the run every time you push code
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Download your code from the repo
+      - uses: actions/checkout@v4
+      
+      # 2. Set up Python
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          
+      # 3. Install dependencies
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          
+      # 4. Run your test suite
+      - name: Run unit tests
+        run: |
+          python -m unittest test_backtester.py
