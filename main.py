@@ -2,14 +2,34 @@ import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
 
+def calculate_rsi(data, window=14):
+    """
+    Calculates the Relative Strength Index (RSI) for a given pandas Series.
+    """
+    # Calculate daily price changes
+    delta = data.diff()
+    
+    # Separate gains and losses
+    gain = (delta.where(delta > 0, 0)).fillna(0)
+    loss = (-delta.where(delta < 0, 0)).fillna(0)
+    
+    # Calculate the exponential moving average of gains and losses
+    avg_gain = gain.ewm(span=window, adjust=False).mean()
+    avg_loss = loss.ewm(span=window, adjust=False).mean()
+    
+    # Calculate Relative Strength (RS)
+    rs = avg_gain / avg_loss
+    
+    # Calculate RSI
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
 def analyze_and_plot_trend(ticker_symbol, period="2y"):
     """
-    Fetches market data, calculates trends using moving averages, 
-    and generates an annotated chart.
+    Fetches market data, calculates SMAs and RSI, and plots stacked charts.
     """
     print(f"[*] Fetching market data for {ticker_symbol}...")
     
-    # 1. Import Market Data
     stock = yf.Ticker(ticker_symbol)
     df = stock.history(period=period)
     
@@ -17,60 +37,55 @@ def analyze_and_plot_trend(ticker_symbol, period="2y"):
         print("[!] No data found. Check the ticker symbol.")
         return
         
-    # 2. Analyze Trends (Calculate Simple Moving Averages)
-    # The 50-day SMA represents the short-term trend
+    # --- Calculate Indicators ---
+    # Moving Averages
     df['SMA_50'] = df['Close'].rolling(window=50).mean()
-    # The 200-day SMA represents the long-term macroeconomic trend
     df['SMA_200'] = df['Close'].rolling(window=200).mean()
     
-    # Determine the current trend state based on the most recent day
+    # Relative Strength Index (14-day standard)
+    df['RSI'] = calculate_rsi(df['Close'], window=14)
+    
     current_price = df['Close'].iloc[-1]
-    current_sma50 = df['SMA_50'].iloc[-1]
-    current_sma200 = df['SMA_200'].iloc[-1]
+    current_rsi = df['RSI'].iloc[-1]
     
-    if current_sma50 > current_sma200:
-        trend_status = "BULLISH (Golden Cross Regime)"
-    elif current_sma50 < current_sma200:
-        trend_status = "BEARISH (Death Cross Regime)"
-    else:
-        trend_status = "NEUTRAL (Consolidation)"
-        
-    # 3. Create Chart with Explanations
-    plt.figure(figsize=(12, 6))
+    # --- Create Stacked Charts ---
+    # Create a figure with 2 subplots. The 'gridspec_kw' makes the top chart taller.
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
     
-    # Plotting the price and the two averages
-    plt.plot(df.index, df['Close'], label='Close Price', alpha=0.4, color='gray')
-    plt.plot(df.index, df['SMA_50'], label='50-Day SMA (Short)', color='blue', linewidth=2)
-    plt.plot(df.index, df['SMA_200'], label='200-Day SMA (Long)', color='red', linewidth=2)
+    # Top Chart: Price and Moving Averages
+    ax1.plot(df.index, df['Close'], label='Close Price', alpha=0.5, color='gray')
+    ax1.plot(df.index, df['SMA_50'], label='50-Day SMA', color='blue', linewidth=1.5)
+    ax1.plot(df.index, df['SMA_200'], label='200-Day SMA', color='red', linewidth=1.5)
     
-    # Formatting the chart
-    plt.title(f"{ticker_symbol} Market Trend Analysis", fontsize=16, fontweight='bold')
-    plt.xlabel("Date")
-    plt.ylabel("Price (USD)")
-    plt.legend()
-    plt.grid(alpha=0.3)
+    ax1.set_title(f"{ticker_symbol} Trend and Momentum Analysis", fontsize=16, fontweight='bold')
+    ax1.set_ylabel("Price (USD)")
+    ax1.legend(loc="upper left")
+    ax1.grid(alpha=0.3)
     
-    # Adding a dynamic text box that explains the analysis to the user
-    explanation_text = (
-        f"CURRENT ANALYSIS:\n"
-        f"Price: ${current_price:.2f}\n"
-        f"Trend: {trend_status}\n\n"
-        f"Explanation:\n"
-        f"When the short-term 50-SMA (blue) is\n"
-        f"above the long-term 200-SMA (red),\n"
-        f"the asset is in a sustained uptrend.\n"
-        f"If blue crosses below red, it signals\n"
-        f"a macro downtrend."
-    )
+    # Bottom Chart: RSI Oscillator
+    ax2.plot(df.index, df['RSI'], label='RSI (14-day)', color='purple', linewidth=1.5)
     
-    # Place text box on the upper left of the chart
-    plt.text(0.02, 0.95, explanation_text, transform=plt.gca().transAxes, 
-             fontsize=11, verticalalignment='top', 
-             bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.9, edgecolor='gray'))
+    # Add horizontal lines for overbought (70) and oversold (30) thresholds
+    ax2.axhline(70, color='red', linestyle='--', alpha=0.5)
+    ax2.axhline(30, color='green', linestyle='--', alpha=0.5)
+    
+    # Fill the areas to highlight overbought/oversold zones visually
+    ax2.fill_between(df.index, df['RSI'], 70, where=(df['RSI'] >= 70), facecolor='red', alpha=0.3, interpolate=True)
+    ax2.fill_between(df.index, df['RSI'], 30, where=(df['RSI'] <= 30), facecolor='green', alpha=0.3, interpolate=True)
+    
+    ax2.set_ylabel("RSI")
+    ax2.set_xlabel("Date")
+    ax2.set_ylim(0, 100) # RSI is always bound between 0 and 100
+    ax2.grid(alpha=0.3)
+    
+    # Add a text readout of the current RSI state
+    rsi_status = "Overbought" if current_rsi > 70 else "Oversold" if current_rsi < 30 else "Neutral"
+    ax2.text(0.02, 0.85, f"Current RSI: {current_rsi:.1f} ({rsi_status})", transform=ax2.transAxes, 
+             fontsize=10, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
     plt.tight_layout()
     plt.show()
 
 if __name__ == "__main__":
-    # You can change "AAPL" to any ticker, like "SPY" for the S&P 500 or "BTC-USD" for Bitcoin
+    analyze_and_plot_trend("AAPL", period="2y")
     analyze_and_plot_trend("AAPL", period="2y")
